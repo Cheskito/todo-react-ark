@@ -1,9 +1,9 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { supabase } from '@/lib/supabase/client';
 
 interface User {
-  id: number;
   email: string;
   names: string;
   lastNames: string;
@@ -44,34 +44,40 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const login = async (email: string, password: string) => {
     try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password
       });
 
-      const data = await response.json();
+      if (authError) throw authError;
+      if (!authData.user) throw new Error('No se pudo autenticar el usuario');
 
-      if (data.success) {
-        const userData = {
-          id: data.user.id,
-          email: data.user.email,
-          names: data.user.names,
-          lastNames: data.user.lastNames,
-          accessLevel: data.user.accessLevel,
-          createdAt: data.user.createdAt,
-        };
-        setUser(userData);
-        sessionStorage.setItem('user', JSON.stringify(userData));
-        return { success: true };
-      } else {
-        return { success: false, message: data.message };
+      const { data: profile, error: profileError } = await supabase
+        .from('Users')
+        .select('names, last_names, access_level')
+        .eq('id_auth', authData.user.id)
+        .single();
+
+      if (profileError || !profile) {
+        throw new Error('No se encontró el perfil del usuario');
       }
+
+      const user = {
+        email: authData.user.email || '',
+        names: profile.names,
+        lastNames: profile.last_names,
+        accessLevel: profile.access_level,
+        createdAt: authData.user.created_at
+      };
+
+      setUser(user);
+      sessionStorage.setItem('user', JSON.stringify(user));
+      return { success: true };
     } catch (error) {
-      console.error('Error durante el login:', error);
-      return { success: false, message: 'Error al intentar iniciar sesión' };
+      return {
+        success: false,
+        message: 'Usuario o contraseña incorrectos'
+      };
     }
   };
 
